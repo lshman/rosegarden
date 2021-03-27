@@ -16,6 +16,7 @@
 */
 
 #define RG_MODULE_STRING "[NotationView]"
+#define RG_NO_DEBUG_PRINT 1
 
 #include "NotationView.h"
 
@@ -493,6 +494,50 @@ unadoptSegment(Segment *s)
         slotRegenerateScene();
         slotUpdateMenuStates();
     }
+}
+
+// Adopt a segment that does live in Composition. Do not take ownership
+// of s;
+void
+NotationView::
+adoptCompositionSegment(Segment *s)
+{
+    if (std::find(m_segments.begin(),
+                  m_segments.end(), s) != m_segments.end()) {
+        // we already have it
+        return;
+    }
+    Composition& comp = m_doc->getComposition();
+    if (comp.findSegment(s) == comp.end()) {
+        // segment is not in composition
+        RG_WARNING << "segment" << s << "not found in composition";
+        return;
+    }
+    m_segments.push_back(s);
+    // re-invoke setSegments with the amended m_segments
+    setWidgetSegments();
+}
+
+// Unadopt a segment that we adopted earlier.  If s was not adopted
+// earlier, do nothing.
+void
+NotationView::
+unadoptCompositionSegment(Segment *s)
+{
+    SegmentVector::iterator it =
+        std::find(m_segments.begin(), m_segments.end(), s);
+    if (it == m_segments.end()) {
+        // we do not have it
+        return;
+    }
+    Composition& comp = m_doc->getComposition();
+    if (comp.findSegment(s) == comp.end()) {
+        // segment is not in composition
+        RG_WARNING << "segment" << s << "not found in composition";
+        return;
+    }
+    m_segments.erase(it);
+    slotUpdateMenuStates(); // single <-> multiple
 }
 
 NotationView::SegmentVector::iterator
@@ -5142,73 +5187,61 @@ NotationView::slotAddLayer()
     // wings.
     slotSetNoteRestInserter();
 
-    AddLayerCommand *command = new AddLayerCommand(getCurrentSegment(), getDocument()->getComposition());
-    CommandHistory::getInstance()->addCommand(command);
+    Composition& comp = getDocument()->getComposition();
+
+    MacroCommand *macro = new MacroCommand(tr("New Layer"));
+
+    AddLayerCommand *command = new AddLayerCommand(getCurrentSegment(),
+                                                   comp);
+    macro->addCommand(command);
+
+    AdoptSegmentCommand *adoptCommand =
+        new AdoptSegmentCommand("Adopt Layer", *this, "Added Layer",
+                                &comp, true, true);
+    macro->addCommand(adoptCommand);
+    
+    CommandHistory::getInstance()->addCommand(macro);
 
     // get the pointer to the segment we just created and add it to m_segments
-    m_segments.push_back(command->getSegment());
+    Segment* newLayer = comp.getSegmentByMarking("Added Layer");
+    if (! newLayer) {
+        RG_WARNING << "NotationView: new layer not found";
+        return;
+    }
 
-    // re-invoke setSegments with the amended m_segments
-    setWidgetSegments();
-
-    // try to make the new segment active immediately
-    slotCurrentSegmentNext();
-
+    // make the new segment active immediately
+    NotationScene *scene = m_notationWidget->getScene();
+    NotationStaff* newLayerStaff =
+        scene->getStaffBySegmentMarking("Added Layer");
+    if (! newLayerStaff) {
+        RG_WARNING << "NotationView: new layer staff not found";
+        return;
+    }
+    
+    setCurrentStaff(newLayerStaff);
+    slotEditSelectWholeStaff();
+    
     enterActionState("have_multiple_staffs");
 
-    // Undoing this goes kaboom bigtime.  What to do about that?  Make the
-    // command's undo emit a signal or something?  The notation widget needs to
-    // pick up the change and reboot itself again on the smaller set of
-    // segments, or at least close gracefully instead of crashing, the way it
-    // does when you undo the creation of a segment that was displayed in this
-    // view.
-    //
-    // I suppose it would be most ideal to have some mechanism in place whereby
-    // undoing segment creation in general triggered successive calls to
-    // setSegments() until there was only one segment left, and then we'd blink
-    // out of existence only after undoing that final one in a multi-segment
-    // context.
 }
 
 void
 NotationView::slotMagicLayer()
 {
-    // grab selection; else abort cleanly
     EventSelection *selection = getSelection();
     if (!selection) return;
 
     // switch to the pencil, as in slotAddLayer
     slotSetNoteRestInserter();
 
+    Segment* currentSegment = getCurrentSegment();
+
     MacroCommand *macro = new MacroCommand(tr("New Layer from Selection"));
 
+    Composition& comp = getDocument()->getComposition();
     // make a new "layer" segment
-    AddLayerCommand *command = new AddLayerCommand(getCurrentSegment(), getDocument()->getComposition());
-    command->execute();
-
-    // Not sure how to handle this:  We have to execute() here to get the
-    // segment created for pasting, but if we do that, the command executes a
-    // second time later on, and you end up with two new segments, one of which
-    // is empty...  The only way I see to avoid that is to execute here, and
-    // skip adding this to the MacroCommand, which means if you undo this
-    // operation, it won't be clean.  The only alternative I can think of is to
-    // add a series of commands to the stack, so one operation requires multiple
-    // undos to reverse.  I don't like that either.  Meh.  
-//    macro->addCommand(command);
-
-    // get the new segment we just created; abort if there is no new segment or
-    // if it is exactly the same as the current segment, which means new segment
-    // creation failed
-    Segment *newLayer = command->getSegment();
-    if (!newLayer || newLayer == getCurrentSegment()) {
-        RG_DEBUG << "NotationView::slotMagicLayer(): newLayer: " 
-                 << newLayer
-                 << " currentSegment: "
-                 << getCurrentSegment()
-                 << " aborting!" << endl;
-        delete macro;
-        return;
-    }
+    AddLayerCommand *command = new AddLayerCommand(currentSegment, comp);
+    macro->addCommand(command);
 
     // cut the selected events from the parent segment
     timeT insertionTime = selection->getStartTime();
@@ -5217,29 +5250,41 @@ NotationView::slotMagicLayer()
     CopyCommand *cc = new CopyCommand(*selection, c);
     cc->execute();
 
+    RG_DEBUG << "CopyCommand done";
+    RG_DEBUG << "Clipboard contents";
+    Segment* clipseg = c->getSingleSegment();
+    if (clipseg) RG_DEBUG << *clipseg;
+    RG_DEBUG << "Clipboard contents done";
+
     macro->addCommand(new EraseCommand(*selection));
 
-    // use overlay paste to avoid checking for space; paste to new "layer" 
+    // use overlay paste to avoid checking for space; paste to new
+    // "layer" identify the layer with the segment marking.
     PasteEventsCommand::PasteType type = PasteEventsCommand::NoteOverlay;
-    macro->addCommand(new PasteEventsCommand(*newLayer, c, insertionTime, type));
-    
-    delete c;
+    macro->addCommand(new PasteEventsCommand("Added Layer", c,
+                                             insertionTime, type, comp));
 
+    // and adopt the segment
+    AdoptSegmentCommand *adoptCommand =
+        new AdoptSegmentCommand("Adopt Layer", *this, "Added Layer",
+                                &comp, true, true);
+    macro->addCommand(adoptCommand);
+    
     CommandHistory::getInstance()->addCommand(macro);
 
-    // normalize rests to clean up the weird double whole rest problem
-    newLayer->normalizeRests(newLayer->getStartTime(), newLayer->getEndTime());
+    delete c;
 
-    // get the pointer to the segment we just created and add it to m_segments
-    m_segments.push_back(newLayer);
+    // make the new segment active immediately
+    NotationScene *scene = m_notationWidget->getScene();
+    NotationStaff* newLayerStaff =
+        scene->getStaffBySegmentMarking("Added Layer");
+    if (! newLayerStaff) {
+        RG_WARNING << "NotationView: new layer staff not found";
+        return;
+    }
 
-    // re-invoke setSegments with the amended m_segments
-    setWidgetSegments();
-
-    // try to make the new segment active immediately
-    // ??? This doesn't work consistently.  Need something better.
-    //     We have newLayer.  Can we just make that the selection?
-    slotCurrentSegmentNext();
+    setCurrentStaff(newLayerStaff);
+    slotEditSelectWholeStaff();
 
     enterActionState("have_multiple_staffs");
 }

@@ -15,9 +15,12 @@
     COPYING included with this distribution for more information.
 */
 
+#define RG_NO_DEBUG_PRINT 1
+#define RG_MODULE_STRING "[AddLayerCommand]"
 
 #include "AddLayerCommand.h"
 
+#include "misc/Debug.h"
 #include "base/Segment.h"
 #include "base/Composition.h"
 #include "base/Track.h"
@@ -56,7 +59,21 @@ AddLayerCommand::execute()
 { 
     if (!m_segment) return;
 
-    Segment *layer = new Segment();
+    if (m_detached) {
+        // the layer already exists - we just need to re-add it. Note
+        // - we have laready adjusted m_segment to point to the layer
+        m_composition.addSegment(m_segment);
+        RG_DEBUG << "attaching segment" << m_segment;
+        RG_DEBUG << "layer after attatch";
+        RG_DEBUG << *m_segment;
+        RG_DEBUG << "layer after attatch end";
+        return;
+    }
+
+    // create a new layer
+    Segment* layer = new Segment();
+    RG_DEBUG << "creating segment" << layer;
+    layer->setMarking("Added Layer", &m_composition);
 
     layer->setTrack(m_segment->getTrack());
     layer->setStartTime(m_segment->getStartTime());
@@ -119,6 +136,9 @@ AddLayerCommand::execute()
     // asked
     m_segment = layer;
     m_detached = false;
+    RG_DEBUG << "layer after creation";
+    RG_DEBUG << *m_segment;
+    RG_DEBUG << "layer after creation end";
 }
 
 void
@@ -126,6 +146,10 @@ AddLayerCommand::unexecute()
 {
     m_composition.detachSegment(m_segment);
     m_detached = true;
+    RG_DEBUG << "layer after detatch";
+    RG_DEBUG << *m_segment;
+    RG_DEBUG << "layer after detatch end";
+
 }
 
 }

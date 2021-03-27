@@ -2474,6 +2474,20 @@ Composition::detachMarker(Rosegarden::Marker *marker)
     return false;
 }
 
+Segment*
+Composition::getSegmentByMarking(const QString& marking) const
+{
+    for (SegmentMultiSet::const_iterator i = m_segments.begin();
+         i != m_segments.end(); ++i) {
+        
+        Segment* s = *i;
+        if (s->getMarking() == marking) {
+            return s;
+        }
+    }
+    return nullptr;
+}
+
 #if 0
 // unused
 bool

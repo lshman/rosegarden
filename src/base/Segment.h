@@ -745,8 +745,8 @@ public:
     // Get the segments in the current composition.
     static SegmentMultiSet& getCompositionSegments();
     
-    void  addObserver(SegmentObserver *obs) { m_observers.push_back(obs); }
-    void removeObserver(SegmentObserver *obs) { m_observers.remove(obs); }
+    void  addObserver(SegmentObserver *obs);
+    void removeObserver(SegmentObserver *obs);
 
     // List of visible EventRulers attached to this segment
     //
@@ -898,6 +898,11 @@ public:
      */
     bool getForNotation() const;
 
+    /// get and set marking. Setting a marking removes the marking from any
+    /// outher segments
+    QString getMarking() const;
+    void setMarking(const QString& m, Composition* comp);
+
 private:
     void checkInsertAsClefKey(Event *e) const;
 
@@ -954,6 +959,8 @@ private:
     // EventRulers currently selected as visible on this segment
     //
     EventRulerList                m_eventRulerList;
+
+    QString m_marking;
 
 private: // stuff to support SegmentObservers
 

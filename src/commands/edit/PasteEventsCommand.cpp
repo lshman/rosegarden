@@ -16,6 +16,7 @@
 */
 
 #define RG_MODULE_STRING "[PasteEventsCommand]"
+#define RG_NO_DEBUG_PRINT 1
 
 #include "PasteEventsCommand.h"
 
@@ -43,8 +44,35 @@ PasteEventsCommand::PasteEventsCommand(Segment &segment,
                  getEffectiveEndTime(segment, clipboard, pasteTime)),
     m_relayoutEndTime(getEndTime()),
     m_clipboard(new Clipboard(*clipboard)),
-    m_pasteType(pasteType),
-    m_pastedEvents(segment)
+    m_pasteType(pasteType)
+{
+    if (pasteType != OpenAndPaste) {
+
+        // paste clef or key -> relayout to end
+
+        if (clipboard->isSingleSegment()) {
+
+            Segment *s(clipboard->getSingleSegment());
+            for (Segment::iterator i = s->begin(); i != s->end(); ++i) {
+                if ((*i)->isa(Clef::EventType) ||
+                    (*i)->isa(Key::EventType)) {
+                    m_relayoutEndTime = s->getEndTime();
+                    break;
+                }
+            }
+        }
+    }
+}
+
+PasteEventsCommand::PasteEventsCommand(const QString& marking,
+                                       Clipboard *clipboard,
+                                       timeT pasteTime,
+                                       PasteType pasteType,
+                                       Composition& comp) :
+    BasicCommand(getGlobalName(), pasteTime, marking, &comp),
+    m_relayoutEndTime(getEndTime()),
+    m_clipboard(new Clipboard(*clipboard)),
+    m_pasteType(pasteType)
 {
     if (pasteType != OpenAndPaste) {
 
@@ -72,9 +100,9 @@ PasteEventsCommand::PasteEventsCommand(Segment &segment,
     BasicCommand(getGlobalName(), segment, pasteTime, pasteEndTime),
     m_relayoutEndTime(getEndTime()),
     m_clipboard(new Clipboard(*clipboard)),
-    m_pasteType(pasteType),
-    m_pastedEvents(segment)
-{}
+    m_pasteType(pasteType)
+{
+}
 
 PasteEventsCommand::~PasteEventsCommand()
 {
@@ -196,7 +224,7 @@ PasteEventsCommand::isPossible()
 void
 PasteEventsCommand::modifySegment()
 {
-    RG_DEBUG << "PasteEventsCommand::modifySegment";
+    RG_DEBUG << "PasteEventsCommand::modifySegment" << getSegment();
 
     if (!m_clipboard->isSingleSegment())
         return ;
@@ -204,12 +232,23 @@ PasteEventsCommand::modifySegment()
     Segment *source = m_clipboard->getSingleSegment();
     Segment *destination(&getSegment());
 
+    RG_DEBUG << "segment source";
+    RG_DEBUG << *source;
+    RG_DEBUG << "segment source end";
+    RG_DEBUG << "segment destination";
+    RG_DEBUG << *destination;
+    RG_DEBUG << "segment destination end";
+
     timeT destEndTime = destination->getEndTime();
     timeT pasteTime = std::max(getStartTime(), destination->getStartTime());
     timeT origin = source->getStartTime();
     timeT duration = source->getEndTime() - origin;
 
+    RG_DEBUG << "pasteTime" << pasteTime << "origin" << origin;
+
     SegmentNotationHelper helper(*destination);
+    bool possible = helper.removeRests(pasteTime, duration, true);
+    if (! possible) RG_WARNING << "pasting when not possible";
 
     RG_DEBUG << "PasteEventsCommand::modifySegment() : paste type = "
     << m_pasteType << " - pasteTime = "
@@ -283,7 +322,6 @@ PasteEventsCommand::modifySegment()
 
             for (size_t i = 0; i < copies.size(); ++i) {
                 destination->insert(copies[i]);
-                m_pastedEvents.addEvent(copies[i]);
             }
 
             endTime = std::min(destEndTime, destination->getBarEndForTime(endTime));
@@ -291,7 +329,7 @@ PasteEventsCommand::modifySegment()
             break;
         }
 
-    case NoteOverlay:
+    case NoteOverlay: {
         for (Segment::iterator i = source->begin(); i != source->end(); ++i) {
             if ((*i)->isa(Note::EventRestType)) {
                 continue;
@@ -305,17 +343,22 @@ PasteEventsCommand::modifySegment()
             }
 
             if ((*i)->isa(Note::EventType)) {
+                RG_DEBUG << "NoteOverlay insert" <<
+                    e->getNotationAbsoluteTime();
                 // e is model event: we retain ownership of it
-                Segment::iterator i = helper.insertNote(e);
+                helper.insertNote(e);
                 delete e;
-                if (i != destination->end()) m_pastedEvents.addEvent(*i);
             } else {
                 destination->insert(e);
-                m_pastedEvents.addEvent(e);
             }
         }
 
-        return ;
+        RG_DEBUG << "segment after modify";
+        RG_DEBUG << *destination;
+        RG_DEBUG << "segment after modify end";
+
+        return;
+    }
 
     case MatrixOverlay:
 
@@ -340,7 +383,6 @@ PasteEventsCommand::modifySegment()
             }
 
             destination->insert(e);
-            m_pastedEvents.addEvent(e);
         }
 
         timeT endTime = pasteTime + duration;
@@ -363,16 +405,9 @@ PasteEventsCommand::modifySegment()
                                               <Int>(BEAMED_GROUP_ID)]);
         }
         destination->insert(e);
-        m_pastedEvents.addEvent(e);
     }
 
     destination->normalizeRests(pasteTime, pasteTime + duration);
-}
-
-EventSelection
-PasteEventsCommand::getPastedEvents()
-{
-    return m_pastedEvents;
 }
 
 }

@@ -64,6 +64,16 @@ public:
                        PasteType pasteType);
 
     /**
+     * Construct a Paste command from a clipboard that already contains
+     * the events to be pasted. Identify the segment by marking
+     */
+    PasteEventsCommand(const QString& marking,
+                       Clipboard *clipboard,
+                       timeT pasteTime,
+                       PasteType pasteType,
+                       Composition& comp);
+
+    /**
      * Construct a Paste command from a clipboard that will contain
      * the events to be pasted by the time the Paste command is
      * executed, but might not do so yet.  This is necessary if the
@@ -80,8 +90,6 @@ public:
 
     ~PasteEventsCommand() override;
 
-    EventSelection getPastedEvents();
-
     static QString getGlobalName() { return tr("&Paste"); }
 
     /// Determine whether this paste will succeed (without executing it yet)
@@ -97,7 +105,6 @@ protected:
     timeT m_relayoutEndTime;
     Clipboard *m_clipboard;
     PasteType m_pasteType;
-    EventSelection m_pastedEvents;
 };
 
 

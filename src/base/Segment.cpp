@@ -14,6 +14,7 @@
 */
 
 #define RG_MODULE_STRING "[Segment]"
+#define RG_NO_DEBUG_PRINT 1
 
 #include "base/Segment.h"
 #include "base/NotationTypes.h"
@@ -87,6 +88,7 @@ Segment::Segment(SegmentType segmentType, timeT startTime) :
     m_verse(0),
     m_forNotation(true)
 {
+    RG_DEBUG << "ctor" << this;
 }
 
 Segment::Segment(const Segment &segment):
@@ -133,6 +135,7 @@ Segment::Segment(const Segment &segment):
     m_verseCount(-1),   // -1 => computation needed
     m_verse(0)   // Needs a global recomputation on the whole composition
 {
+    RG_DEBUG << "cctor" << this;
     for (const_iterator it = segment.begin();
          it != segment.end(); ++it) {
         insert(new Event(**it));
@@ -154,6 +157,7 @@ Segment::cloneImpl() const
 
 Segment::~Segment()
 {
+    RG_DEBUG << "dtor" << this;
     if (!m_observers.empty()) {
         RG_WARNING << "dtor: Warning: " << m_observers.size() << " observers still extant";
         RG_WARNING << "Observers are:";
@@ -215,6 +219,26 @@ Segment::setForNotation(bool f) {
 bool
 Segment::getForNotation() const {
     return m_forNotation;
+}
+
+QString
+Segment::getMarking() const
+{
+    return m_marking;
+}
+
+void
+Segment::setMarking(const QString& m, Composition* comp)
+{
+    if (m != "") {
+        // remove old marking
+        Segment* oldSeg = comp->getSegmentByMarking(m);
+        while (oldSeg) {
+            oldSeg->setMarking("", comp);
+            oldSeg = comp->getSegmentByMarking(m);
+        }
+    }
+    m_marking = m;
 }
 
 void
@@ -1711,6 +1735,20 @@ getCompositionSegments()
 {
     Composition* composition = DocumentGet::getComposition();
     return composition->getSegments();
+}
+
+void
+Segment::addObserver(SegmentObserver *obs)
+{
+    RG_DEBUG << "addObserver" << this << obs;
+    m_observers.push_back(obs);
+}
+
+void
+Segment::removeObserver(SegmentObserver *obs)
+{
+    RG_DEBUG << "removeObserver" << this << obs;
+    m_observers.remove(obs);
 }
 
 SegmentHelper::~SegmentHelper() { }

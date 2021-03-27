@@ -82,31 +82,60 @@ protected:
                  Segment &segment,
 		 Segment *redoEvents);
 
+    // Variant ctor to be used when the segment does not exist when
+    // the command is created.  Implies brute force redo false.
+    BasicCommand(const QString &name,
+                 timeT start,
+                 const QString& segmentMarking,
+                 Composition* comp);
+
     virtual void modifySegment() = 0;
 
     virtual void beginExecute();
 
 private:
     /// Copy from m_segment to segment.
-    void copyTo(Segment *segment);
+    void copyTo(Segment *segment, bool wholeSegment = false);
     /// Copy from segment to m_segment replacing events in the time range.
-    void copyFrom(Segment *segment);
+    void copyFrom(Segment *segment, bool wholeSegment = false);
 
     timeT calculateStartTime(timeT given, Segment &segment);
     timeT calculateEndTime(timeT given, Segment &segment);
 
+    /// if the segment is not set yet - get it from the segment marking
+    void requireSegment();
+
+    /// find out the range of Events modified by modifySegment
+    void calculateModifiedStartEnd();
+
     timeT m_startTime;
     timeT m_endTime;
 
-    /// The Segment that this command is being run against.
-    Segment &m_segment;
+    /// The Segment that this command is being run against.  This is a
+    /// pointer rather than a reference because it is possible to
+    /// create a command before the segment exists and set the segment
+    /// later
+    Segment *m_segment;
     /// Events from m_segment prior to executing the command.
-    Segment m_savedEvents;
+    Segment *m_savedEvents;
 
     /// Redo or execute() will be using a list of events (m_redoEvents).
     bool m_doBruteForceRedo;
     /// Events for redo, or for the "redoEvents" ctor.
     Segment *m_redoEvents;
+
+    /// The segment marking for delayed acces to segment
+    QString m_segmentMarking;
+
+    /// the composition
+    Composition *m_comp;
+
+    /// start and end of the range of events which are modified by modifySegment
+    timeT m_modifiedEventsStart;
+    timeT m_modifiedEventsEnd;
+
+    timeT m_originalStartTime;
+
 };
 
 
